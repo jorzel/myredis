@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/codecrafters-io/redis-starter-go/app/config"
-	"github.com/codecrafters-io/redis-starter-go/app/protocol"
+	"github.com/jorzel/myredis/app/config"
+	"github.com/jorzel/myredis/app/protocol"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -154,122 +154,24 @@ func TestHandleGetExpiredRecord(t *testing.T) {
 	assert.Equal(t, string([]byte("$-1\r\n")), string(conn.writes[1]), "Expected GET command to return nil")
 }
 
-func TestHandleInfo(t *testing.T) {
-	command := protocol.Command{
-		Name: "INFO",
+func TestHandleDel(t *testing.T) {
+	delCommand := protocol.Command{
+		Name: "DEL",
+		Args: []string{"key", "key2"},
 	}
 
-	config := &config.Config{}
-	config.ReplicationID = "12" // Mock ReplID for testing
-	handler := NewCommandHandler(config)
+	handler := NewCommandHandler(&config.Config{})
+	// First, we need to set the value for the key
+	setCommand := protocol.Command{
+		Name: "SET",
+		Args: []string{"key", "value"},
+	}
 	conn := &MockConn{}
-	_, err := handler.Handle(context.Background(), conn, command)
+	handler.Handle(context.Background(), conn, setCommand)
 
-	require.NoError(t, err, "Expected no error when handling INFO command")
-	require.Len(t, conn.writes, 1, "Expected one write to the connection")
-	assert.Equal(
-		t,
-		string([]byte("$65\r\n#Replication\r\nmaster_replid:12\r\nrole:master\r\nmaster_repl_offset:0\r\n")),
-		string(conn.writes[0]),
-		"Expected INFO command to return the same string",
-	)
-}
+	_, err := handler.Handle(context.Background(), conn, delCommand)
 
-func TestHandleInfoSlave(t *testing.T) {
-	command := protocol.Command{
-		Name: "INFO",
-	}
-
-	config := &config.Config{
-		ReplicaOf: &config.Node{
-			Host: "host",
-			Port: 6378,
-		},
-	}
-	handler := NewCommandHandler(config)
-	conn := &MockConn{}
-	_, err := handler.Handle(context.Background(), conn, command)
-
-	require.NoError(t, err, "Expected no error when handling INFO command for slave")
-	require.Len(t, conn.writes, 1, "Expected one write to the connection")
-	assert.Equal(
-		t,
-		string([]byte("$24\r\n#Replication\r\nrole:slave\r\n")),
-		string(conn.writes[0]),
-		"Expected INFO command to return the same string",
-	)
-}
-
-func TestHandleReplConfListeningPort(t *testing.T) {
-	command := protocol.Command{
-		Name: "REPLCONF",
-		Args: []string{"listening-port", "6379"},
-	}
-
-	config := &config.Config{}
-	handler := NewCommandHandler(config)
-	conn := &MockConn{}
-	_, err := handler.Handle(context.Background(), conn, command)
-
-	require.NoError(t, err, "Expected no error when handling REPLCONF command")
-	require.Len(t, conn.writes, 1, "Expected one write to the connection")
-	assert.Equal(t, string([]byte("+OK\r\n")), string(conn.writes[0]), "Expected REPLCONF command to return OK")
-}
-
-func TestHandleReplConfCapa(t *testing.T) {
-	command := protocol.Command{
-		Name: "REPLCONF",
-		Args: []string{"capa", "psync2"},
-	}
-
-	config := &config.Config{}
-	handler := NewCommandHandler(config)
-	conn := &MockConn{}
-	_, err := handler.Handle(context.Background(), conn, command)
-
-	require.NoError(t, err, "Expected no error when handling REPLCONF command")
-	require.Len(t, conn.writes, 1, "Expected one write to the connection")
-	assert.Equal(t, string([]byte("+OK\r\n")), string(conn.writes[0]), "Expected REPLCONF command to return OK")
-}
-
-func TestHandleReplConfInvalid(t *testing.T) {
-	command := protocol.Command{
-		Name: "REPLCONF",
-		Args: []string{"invalid", "argument"},
-	}
-
-	config := &config.Config{}
-	handler := NewCommandHandler(config)
-	conn := &MockConn{}
-	_, err := handler.Handle(context.Background(), conn, command)
-
-	require.NoError(t, err, "Expected REPLCONF command to return an error response")
-	require.Len(t, conn.writes, 1, "Expected one write to the connection")
-	assert.Equal(t,
-		string([]byte("-ERR REPLCONF command only supports 'listening-port <PORT>' and 'capa psync2' arguments\r\n")),
-		string(conn.writes[0]),
-		"Expected REPLCONF command to return an error",
-	)
-}
-
-func TestHandlePSync(t *testing.T) {
-	command := protocol.Command{
-		Name: "PSYNC",
-		Args: []string{"?", "-1"},
-	}
-
-	config := &config.Config{}
-	config.ReplicationID = "12" // Mock ReplID for testing
-	handler := NewCommandHandler(config)
-	conn := &MockConn{}
-	_, err := handler.Handle(context.Background(), conn, command)
-
-	require.NoError(t, err, "Expected no error when handling PSYNC command")
+	require.NoError(t, err, "Expected no error when handling DEL command")
 	require.Len(t, conn.writes, 2, "Expected two writes to the connection")
-	assert.Equal(t,
-		string([]byte("+FULLRESYNC 12 0\r\n")),
-		string(conn.writes[0]),
-		"Expected PSYNC command to return FULLRESYNC response for master",
-	)
-	assert.NotNil(t, conn.writes[1], "Expected second write to contain DB file content")
+	assert.Equal(t, string([]byte(":1\r\n")), string(conn.writes[1]), "Expected DEL command to return 1 (deleted)")
 }
