@@ -11,6 +11,8 @@ func SimpleInteger(i int) []byte {
 	return []byte(":" + strconv.Itoa(i) + CRLF)
 }
 
+
+
 // SimpleString serializes a simple string into the Redis protocol simple string format.
 // Example: "hello" becomes "+hello\r\n"
 func SimpleString(s string) []byte {

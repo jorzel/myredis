@@ -47,6 +47,8 @@ func (h *DefaultCommandHandler) Handle(
 		return h.handleGet(ctx, conn, command)
 	case protocol.DEL:
 		return h.handleDel(ctx, conn, command) // DEL is not implemented
+	case protocol.REPLCONF:
+		return h.handleReplConf(ctx, conn, command)
 	default:
 		return h.handleUnknownCommand(ctx, conn, command)
 	}
@@ -183,4 +185,37 @@ func (h *DefaultCommandHandler) executeDel(_ context.Context, command protocol.C
 		count++
 	}
 	return protocol.SimpleInteger(count), nil
+}
+
+func (h *DefaultCommandHandler) handleReplConf(
+	ctx context.Context, conn net.Conn, command protocol.Command,
+) (HandleResult, error) {
+	var err error
+	msg, commandErr := h.executeReplConf(ctx, conn, command)
+	if msg != nil {
+		err = h.sendMsg(ctx, conn, msg)
+	}
+	return HandleResult{
+		CommandError: commandErr,
+	}, err
+}
+
+func (h *DefaultCommandHandler) executeReplConf(
+	ctx context.Context, conn net.Conn, command protocol.Command,
+) ([]byte, error) {
+	if len(command.Args) != 2 {
+		errMsg := "REPLCONF command requires exactly 2 arguments"
+		return protocol.Error(errMsg), fmt.Errorf(errMsg)
+	}
+
+	if strings.ToLower(command.Args[0]) == "listening-port" {
+		return protocol.SimpleString("OK"), nil
+	} else if strings.ToLower(command.Args[0]) == "capa" && strings.ToLower(command.Args[1]) == "psync2" {
+		return protocol.SimpleString("OK"), nil
+	}
+	errMsg := fmt.Sprintf(
+		"REPLCONF command only supports 'listening-port <PORT>', and 'capa psync2' arguments, got: %s",
+		strings.Join(command.Args, ", "),
+	)
+	return protocol.Error(errMsg), fmt.Errorf(errMsg)
 }

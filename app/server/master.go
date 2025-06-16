@@ -22,8 +22,8 @@ type MasterServer struct {
 	role           string
 }
 
-func NewMasterServer(config *config.Config) (*MasterServer, error) {
-	addr := fmt.Sprintf("0.0.0.0:%d", config.ServerPort)
+func NewMasterServer(cfg *config.Config) (*MasterServer, error) {
+	addr := fmt.Sprintf("0.0.0.0:%d", cfg.ServerPort)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, err
@@ -31,15 +31,18 @@ func NewMasterServer(config *config.Config) (*MasterServer, error) {
 	return &MasterServer{
 		listener:       ln,
 		commandParser:  protocol.NewCommandParser(),
-		commandHandler: commands.NewCommandHandler(config),
-		config:         config,
-		role:           MasterRole,
+		commandHandler: commands.NewCommandHandler(cfg),
+		config:         cfg,
+		role:           config.MasterRole,
 	}, nil
 }
 
 func (ms *MasterServer) Start(ctx context.Context) error {
 	logger := zerolog.Ctx(ctx)
-	logger.Info().Str("address", ms.listener.Addr().String()).Msg("Master listening on...")
+	logger.Info().
+		Str("address", ms.listener.Addr().String()).
+		Str("role", ms.role).
+		Msg("Server listening on...")
 	for {
 		conn, err := ms.listener.Accept()
 		if err != nil {

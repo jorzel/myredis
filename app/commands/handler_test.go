@@ -175,3 +175,18 @@ func TestHandleDel(t *testing.T) {
 	require.Len(t, conn.writes, 2, "Expected two writes to the connection")
 	assert.Equal(t, string([]byte(":1\r\n")), string(conn.writes[1]), "Expected DEL command to return 1 (deleted)")
 }
+
+func TestHandleReplConfListeningPort(t *testing.T) {
+	command := protocol.Command{
+		Name: "REPLCONF",
+		Args: []string{"listening-port", "6379"},
+	}
+	handler := NewCommandHandler(&config.Config{})
+
+	conn := &MockConn{}
+	_, err := handler.Handle(context.Background(), conn, command)
+
+	require.NoError(t, err, "Expected no error when handling REPLCONF command")
+	require.Len(t, conn.writes, 1, "Expected one write to the connection")
+	assert.Equal(t, string([]byte("+OK\r\n")), string(conn.writes[0]), "Expected REPLCONF command to return OK")
+}

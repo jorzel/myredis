@@ -4,9 +4,10 @@ package protocol
 const CRLF = "\r\n"
 
 const (
-	PING = "PING"
-	ECHO = "ECHO"
-	SET  = "SET"
-	GET  = "GET"
-	DEL  = "DEL"
+	PING     = "PING"
+	ECHO     = "ECHO"
+	SET      = "SET"
+	GET      = "GET"
+	DEL      = "DEL"
+	REPLCONF = "REPLCONF"
 )
