@@ -28,7 +28,7 @@ func main() {
 	logger.Info().Interface("config", cfg).Msg("Starting configuration")
 
 	var srv server.Server
-	if cfg.ReplicaOf != nil {
+	if cfg.ReplicaOf == nil {
 		srv, err = server.NewMasterServer(cfg)
 	} else {
 		srv, err = server.NewReplicaServer(cfg)

@@ -68,6 +68,45 @@ func TestParser(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:       "Two replconf commands in one message",
+			rawMessage: []byte("*3\r\n$8\r\nREPLCONF\r\n$14\r\nlistening-port\r\n$4\r\n6780\r\n*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n"),
+			expectedCommands: []Command{
+				{
+					Name: "REPLCONF",
+					Args: []string{"listening-port", "6780"},
+				},
+				{
+					Name: "REPLCONF",
+					Args: []string{"capa", "psync2"},
+				},
+			},
+		},
+		{
+			name:             "DB file",
+			rawMessage:       []byte("$9\r\nREDIS0011"),
+			expectedCommands: []Command{},
+		},
+		{
+			name:       "Db file + REPLCONF GETACK",
+			rawMessage: []byte("$9\r\nREDIS0011*3\r\n$8\r\nREPLCONF\r\n$6\r\nGETACK\r\n$1\r\n*\r\n"),
+			expectedCommands: []Command{
+				{
+					Name: "REPLCONF",
+					Args: []string{"GETACK", "*"},
+				},
+			},
+		},
+		{
+			name:       "FULLRESYNC command",
+			rawMessage: []byte("+FULLRESYNC repl-id 0\r\n"),
+			expectedCommands: []Command{
+				{
+					Name: "FULLRESYNC",
+					Args: []string{"repl-id", "0"},
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

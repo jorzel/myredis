@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -13,21 +14,28 @@ type CommandParser interface {
 	Parse(rawMessage []byte) (ParseResult, error)
 }
 
+var writeCommnads = []string{SET}
+
 type Command struct {
 	Name string
 	Args []string
 }
 
-func NewCommand(name string, args []string, bytesSize int) Command {
+func NewCommand(name string, args []string) Command {
 	return Command{
 		Name: strings.ToUpper(name),
 		Args: args,
 	}
 }
 
+func (c Command) IsWrite() bool {
+	return slices.Contains(writeCommnads, c.Name)
+}
+
 // ParseResult holds either parsed commands or an RDB payload.
 type ParseResult struct {
 	Commands []Command
+	RDBDump  []byte // non-nil if the message contains an RDB bulk string
 }
 
 func NewCommandParser() CommandParser {
@@ -59,6 +67,23 @@ func (p DefaultCommandParser) Parse(rawMessage []byte) (ParseResult, error) {
 				return result, err
 			}
 			result.Commands = append(result.Commands, cmd)
+		case '+':
+			cmd, err := readResponse(reader)
+			if err != nil {
+				return result, err
+			}
+			result.Commands = append(result.Commands, cmd)
+		case '$':
+			rdbPayload, err := readBulkRaw(reader)
+			if err != nil {
+				return result, err
+			}
+			// Store first RDB dump only
+			if len(result.RDBDump) == 0 {
+				result.RDBDump = rdbPayload
+			} else {
+				// If multiple bulk strings, you can extend here if needed
+			}
 
 		default:
 			return result, fmt.Errorf("unsupported RESP message start byte: %q", b[0])
@@ -68,10 +93,20 @@ func (p DefaultCommandParser) Parse(rawMessage []byte) (ParseResult, error) {
 	return result, nil
 }
 
+func readResponse(r *bufio.Reader) (Command, error) {
+	s, err := readSimpleString(r)
+	if err != nil {
+		return Command{}, fmt.Errorf("failed to read response: %w", err)
+	}
+	parts := strings.Split(s, " ")
+	if len(parts) == 1 {
+		return NewCommand(parts[0], nil), nil
+	}
+	return NewCommand(parts[0], parts[1:]), nil
+}
+
 func readCommand(r *bufio.Reader) (Command, error) {
-	bytesSize := 0
 	line, err := readLine(r)
-	bytesSize += len(line) + 2 // +2 for CRLF
 
 	if err != nil {
 		return Command{}, err
@@ -90,8 +125,6 @@ func readCommand(r *bufio.Reader) (Command, error) {
 	for i := 0; i < argCount; i++ {
 		arg, err := readBulkString(r)
 
-		bytesSize += len(arg) + 2                          // +2 for CRLF
-		bytesSize += len(fmt.Sprintf("$%d", len(arg))) + 2 // for the '$' prefix
 		if err != nil {
 			return Command{}, err
 		}
@@ -102,7 +135,18 @@ func readCommand(r *bufio.Reader) (Command, error) {
 		return Command{}, fmt.Errorf("empty command")
 	}
 
-	return NewCommand(args[0], args[1:], bytesSize), nil
+	return NewCommand(args[0], args[1:]), nil
+}
+
+func readSimpleString(r *bufio.Reader) (string, error) {
+	line, err := readLine(r)
+	if err != nil {
+		return "", fmt.Errorf("failed to read simple string: %w", err)
+	}
+	if len(line) == 0 || line[0] != '+' {
+		return "", fmt.Errorf("expected simple string starting with '+', got: %q", line)
+	}
+	return line[1:], nil
 }
 
 func readBulkString(r *bufio.Reader) (string, error) {
@@ -133,6 +177,28 @@ func readBulkString(r *bufio.Reader) (string, error) {
 	}
 
 	return string(buf), nil
+}
+
+func readBulkRaw(r *bufio.Reader) ([]byte, error) {
+	line, err := readLine(r)
+	if err != nil {
+		return nil, err
+	}
+	if len(line) == 0 || line[0] != '$' {
+		return nil, fmt.Errorf("expected bulk string, got: %q", line)
+	}
+
+	length, err := strconv.Atoi(line[1:])
+	if err != nil {
+		return nil, fmt.Errorf("invalid bulk length: %w", err)
+	}
+
+	buf := make([]byte, length)
+	if _, err := io.ReadFull(r, buf); err != nil {
+		return nil, err
+	}
+
+	return buf, nil
 }
 
 func readLine(r *bufio.Reader) (string, error) {

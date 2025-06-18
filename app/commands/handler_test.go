@@ -190,3 +190,23 @@ func TestHandleReplConfListeningPort(t *testing.T) {
 	require.Len(t, conn.writes, 1, "Expected one write to the connection")
 	assert.Equal(t, string([]byte("+OK\r\n")), string(conn.writes[0]), "Expected REPLCONF command to return OK")
 }
+
+func TestHandlePSync(t *testing.T) {
+	command := protocol.Command{
+		Name: "PSYNC",
+		Args: []string{"?", "-1"},
+	}
+
+	handler := NewCommandHandler(&config.Config{})
+	conn := &MockConn{}
+	_, err := handler.Handle(context.Background(), conn, command)
+
+	require.NoError(t, err, "Expected no error when handling PSYNC command")
+	require.Len(t, conn.writes, 2, "Expected two writes to the connection")
+	assert.Equal(t,
+		string([]byte("+FULLRESYNC test 0\r\n")),
+		string(conn.writes[0]),
+		"Expected PSYNC command to return FULLRESYNC response for master",
+	)
+	assert.NotNil(t, conn.writes[1], "Expected second write to contain DB file content")
+}

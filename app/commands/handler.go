@@ -2,14 +2,17 @@ package commands
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/jorzel/myredis/app/config"
 	"github.com/jorzel/myredis/app/protocol"
 	"github.com/jorzel/myredis/app/storage"
+	"github.com/rs/zerolog"
 )
 
 type HandleResult struct {
@@ -49,6 +52,10 @@ func (h *DefaultCommandHandler) Handle(
 		return h.handleDel(ctx, conn, command) // DEL is not implemented
 	case protocol.REPLCONF:
 		return h.handleReplConf(ctx, conn, command)
+	case protocol.PSYNC:
+		return h.handlePsync(ctx, conn, command)
+	case protocol.FULLRESYNC:
+		return h.handleFullresync(ctx, conn, command)
 	default:
 		return h.handleUnknownCommand(ctx, conn, command)
 	}
@@ -218,4 +225,69 @@ func (h *DefaultCommandHandler) executeReplConf(
 		strings.Join(command.Args, ", "),
 	)
 	return protocol.Error(errMsg), fmt.Errorf(errMsg)
+}
+
+func (h *DefaultCommandHandler) handlePsync(
+	ctx context.Context, conn net.Conn, command protocol.Command,
+) (HandleResult, error) {
+	logger := zerolog.Ctx(ctx)
+
+	msg, commandErr := h.executePsync(ctx, conn, command)
+	err := h.sendMsg(ctx, conn, msg)
+	if err != nil || commandErr != nil {
+		return HandleResult{
+			CommandError: commandErr,
+		}, err
+	}
+	//time.Sleep(100 * time.Millisecond) // Simulate some delay
+	msg, commandErr = h.getDBFile(ctx)
+
+	err = h.sendMsg(ctx, conn, msg)
+	logger.Info().Msg("Sending DB file to replica")
+	return HandleResult{
+		CommandError: commandErr,
+	}, err
+}
+
+func (h *DefaultCommandHandler) executePsync(
+	ctx context.Context, conn net.Conn, command protocol.Command,
+) ([]byte, error) {
+	if len(command.Args) != 2 {
+		errMsg := "PSYNC command requires exactly 2 arguments"
+		return protocol.Error(errMsg), fmt.Errorf(errMsg)
+	}
+	if command.Args[0] != "?" || command.Args[1] != "-1" {
+		errMsg := "PSYNC command only supports '?' and '-1' arguments"
+		return protocol.Error(errMsg), fmt.Errorf(errMsg)
+	}
+	replID := "test"
+
+	return protocol.SimpleString("FULLRESYNC " + replID + " 0"), nil
+}
+
+func (h *DefaultCommandHandler) getDBFile(_ context.Context) ([]byte, error) {
+	// hex-encoded representation of a empty db file
+	emptyDBFile := "524544495330303131fa0972656469732d76657205372e322e30fa0a72656469732d62697473c040fa056374696d65c26d08bc65fa08757365642d6d656dc2b0c41000fa08616f662d62617365c000fff06e3bfec0ff5aa2"
+	DBContent, _ := hex.DecodeString(emptyDBFile)
+	return protocol.FileContent(DBContent), nil
+}
+
+func (h *DefaultCommandHandler) handleFullresync(
+	ctx context.Context, conn net.Conn, command protocol.Command,
+) (HandleResult, error) {
+	logger := zerolog.Ctx(ctx)
+	replID := command.Args[0]
+	offset, err := strconv.Atoi(command.Args[1])
+	if err != nil {
+		errMsg := "Invalid offset in FULLRESYNC command: " + err.Error()
+		return HandleResult{
+			CommandError: fmt.Errorf(errMsg),
+		}, fmt.Errorf(errMsg)
+	}
+	logger.Info().
+		Str("command", command.Name).
+		Int("offset", offset).
+		Str("repl_id", replID).
+		Msg("Handling FULLRESYNC command")
+	return HandleResult{}, err
 }
